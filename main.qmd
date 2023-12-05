@@ -1,0 +1,154 @@
+---
+title: "506 ASS6"
+author: "Manning Wu"
+format: pdf
+---
+
+```{r}
+#| echo: false
+#| warning: false
+library(nycflights13)
+library(ggplot2)
+library(tidyverse)
+library(parallel)
+library(future)
+```
+
+### Construct stratified bootstrapping function
+
+```{r}
+origin_list <- unique(flights$origin)
+## Drop missing data
+flights <- flights %>% drop_na()
+
+#' Title: function for stratified bootstrapping
+#'
+#' @param origin_i origin code
+#'
+#' @return average `air_time` estimation for certain origin
+#' @export
+#'
+#' @examples
+stratified_boot <- function(origin_i) {
+  ## Initialization
+  flights_origin <- flights %>% filter(origin == origin_i)
+  ## re-sample from each strata and then rbind them
+  sample_df <- flights_origin %>% group_by(dest) %>% sample_n(size = n(), replace = TRUE)
+  ## Estimate the average `air_time` for `origin_i`
+  mu_st <- mean(sample_df$air_time)
+  return(mu_st)
+}
+```
+
+### Version 1: Without any parallel processing
+
+```{r}
+reps <- 1000
+system.time({
+  ## the average `air_time` for `EWR`
+  v1_res1 <- lapply(seq_len(reps), function(x) stratified_boot(origin_list[1])) 
+  ## the average `air_time` for `LGA`
+  v1_res2 <- lapply(seq_len(reps), function(x) stratified_boot(origin_list[2]))
+  ## the average `air_time` for `JFK`
+  v1_res3 <- lapply(seq_len(reps), function(x) stratified_boot(origin_list[3]))})
+```
+
+```{r}
+## calculate the mean and CI for result
+v1_mean1 <- mean(Reduce(c, v1_res1))
+v1_leftci1 <- quantile(Reduce(c, v1_res1), probs = 0.025)
+v1_rightci1 <- quantile(Reduce(c, v1_res1), probs = 0.975)
+
+v1_mean2 <- mean(Reduce(c, v1_res2))
+v1_leftci2 <- quantile(Reduce(c, v1_res2), probs = 0.025)
+v1_rightci2 <- quantile(Reduce(c, v1_res2), probs = 0.975)
+
+v1_mean3 <- mean(Reduce(c, v1_res3))
+v1_leftci3 <- quantile(Reduce(c, v1_res3), probs = 0.025)
+v1_rightci3 <- quantile(Reduce(c, v1_res3), probs = 0.975)
+
+## print the table
+matrix(c(v1_leftci1, v1_leftci2, v1_leftci3, v1_mean1, v1_mean2, 
+         v1_mean3, v1_rightci1, v1_rightci2, v1_rightci3), 
+       byrow = TRUE, nrow = 3, dimnames = list(c("2.5%", "mean", "97.5%"), 
+                                               c(origin_list[1], origin_list[2], origin_list[3])))
+```
+
+### Version 2: With 8 cores
+
+```{r}
+system.time({
+  ## the average `air_time` for `EWR`
+  v2_res1 <- mclapply(seq_len(reps), function(x) stratified_boot(origin_list[1]), mc.cores = 8)
+  ## the average `air_time` for `LGA`
+  v2_res2 <- mclapply(seq_len(reps), function(x) stratified_boot(origin_list[2]), mc.cores = 8)
+  ## the average `air_time` for `JFK`
+  v2_res3 <- mclapply(seq_len(reps), function(x) stratified_boot(origin_list[3]), mc.cores = 8)})
+```
+
+```{r}
+## calculate the mean and CI for result
+v2_mean1 <- mean(Reduce(c, v2_res1))
+v2_leftci1 <- quantile(Reduce(c, v2_res1), probs = 0.025)
+v2_rightci1 <- quantile(Reduce(c, v2_res1), probs = 0.975)
+
+v2_mean2 <- mean(Reduce(c, v2_res2))
+v2_leftci2 <- quantile(Reduce(c, v2_res2), probs = 0.025)
+v2_rightci2 <- quantile(Reduce(c, v2_res2), probs = 0.975)
+
+v2_mean3 <- mean(Reduce(c, v2_res3))
+v2_leftci3 <- quantile(Reduce(c, v2_res3), probs = 0.025)
+v2_rightci3 <- quantile(Reduce(c, v2_res3), probs = 0.975)
+
+## print the table
+matrix(c(v2_leftci1, v2_leftci2, v2_leftci3, v2_mean1, v2_mean2, 
+         v2_mean3, v2_rightci1, v2_rightci2, v2_rightci3), 
+       byrow = TRUE, nrow = 3, dimnames = list(c("2.5%", "mean", "97.5%"), 
+                                               c(origin_list[1], origin_list[2], origin_list[3])))
+```
+
+### Version 3: With package `future` 
+
+```{r}
+v3_res1 <- list()
+v3_res2 <- list()
+v3_res3 <- list()
+system.time({plan(multisession)
+  for (i in seq_len(reps)) {
+    ## the average `air_time` for `EWR`
+    v3_res1[[i]] <- future(stratified_boot(origin_list[1]), seed = TRUE)
+    ## the average `air_time` for `LGA`
+    v3_res2[[i]] <- future(stratified_boot(origin_list[2]), seed = TRUE)
+    ## the average `air_time` for `JFK`
+    v3_res3[[i]] <- future(stratified_boot(origin_list[3]), seed = TRUE)
+}})
+```
+
+```{r}
+v3_res1 <- sapply(v3_res1, value)
+v3_res2 <- sapply(v3_res2, value)
+v3_res3 <- sapply(v3_res3, value)
+
+## calculate the mean and CI for result
+v3_mean1 <- mean(v3_res1)
+v3_leftci1 <- quantile(v3_res1, probs = 0.025)
+v3_rightci1 <- quantile(v3_res1, probs = 0.975)
+
+v3_mean2 <- mean(v3_res2)
+v3_leftci2 <- quantile(v3_res2, probs = 0.025)
+v3_rightci2 <- quantile(v3_res2, probs = 0.975)
+
+v3_mean3 <- mean(v3_res3)
+v3_leftci3 <- quantile(v3_res3, probs = 0.025)
+v3_rightci3 <- quantile(v3_res3, probs = 0.975)
+
+## print the table
+matrix(c(v3_leftci1, v3_leftci2, v3_leftci3, v3_mean1, v3_mean2, 
+         v3_mean3, v3_rightci1, v3_rightci2, v3_rightci3), 
+       byrow = TRUE, nrow = 3, dimnames = list(c("2.5%", "mean", "97.5%"), 
+                                               c(origin_list[1], origin_list[2], origin_list[3])))
+```
+
+### Conclusion
+
+According to the result, we find that all versions obtain the similar result. As for the time costs, parallel with 8 cores (version 2) is faster than non-parallel (version 1), while parallel with `furture` package is the slowest. It may be because that the stratified bootstrapping algorithm is much efficient, so `future` package may make it be slower.
